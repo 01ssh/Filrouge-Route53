@@ -1,0 +1,28 @@
+variables:
+  CI_DEBUG_TRACE: "false"
+workflow:
+  rules:
+    - if: '$CI_COMMIT_REF_NAME'
+stages:
+  - deploy-certs
+
+01-route53-certificates-deployment:
+  environment:
+    name: ${CI_COMMIT_REF_NAME}
+  stage: deploy-certs
+  image:
+    name: hashicorp/terraform:1.7.4
+    entrypoint: [""]
+  script:
+    - |
+      [[ ! -p "$HOME/.terraform.d/" ]] && mkdir -p $HOME/.terraform.d/
+      echo "{\"credentials\": {\"app.terraform.io\": {\"token\": \"%TERRAFORM_LOGIN_TOKEN%\"}}}" > $HOME/.terraform.d/credentials.tfrc.json &&\
+      sed -i s/%TERRAFORM_LOGIN_TOKEN%/$CI_TERRAFORM_CICD/g $HOME/.terraform.d/credentials.tfrc.json
+      export TF_VAR_CICD_VAULT_TOKEN=$CICD_VAULT_TOKEN
+      sed -i s/%WORKSPACEINFRA%/\"route53_${ACCOUNT}_$CI_COMMIT_REF_NAME\"/g ./tf/route53/provider.tf 
+      terraform -chdir=tf/route53 init
+      terraform -chdir=tf/route53 plan  -var ENV_WORKSPACE=route53_${ACCOUNT}_${CI_COMMIT_REF_NAME} -var ACCOUNT=${ACCOUNT}
+      terraform -chdir=tf/route53 apply -auto-approve -var ENV_WORKSPACE=route53_${ACCOUNT}_${CI_COMMIT_REF_NAME} -var ACCOUNT=${ACCOUNT}
+  when: on_success
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /development|preprod|production/
